@@ -1,9 +1,18 @@
 #pragma once
 
-#include <sstream>
+#include <memory>
+#include <string>
 #include <type_traits>
-#include <Windows.h>
 
+#ifdef _WIN32
+#include <Windows.h>
+#else
+#include <dlfcn.h>
+#endif
+
+#include "SDK/Platform.h"
+
+class BaseFileSystem;
 class Client;
 class Cvar;
 class Engine;
@@ -17,11 +26,12 @@ class Localize;
 class MaterialSystem;
 class ModelInfo;
 class ModelRender;
+class NetworkStringTableContainer;
 class Panel;
+class PanoramaUIEngine;
 class PhysicsSurfaceProps;
 class Prediction;
 class RenderView;
-class ResourceAccessControl;
 class Surface;
 class Sound;
 class SoundEmitter;
@@ -29,40 +39,54 @@ class StudioRender;
 
 class Interfaces {
 public:
-    Client* client = find<Client>(L"client_panorama", "VClient018");
-    Cvar* cvar = find<Cvar>(L"vstdlib", "VEngineCvar007");
-    Engine* engine = find<Engine>(L"engine", "VEngineClient014");
-    EngineTrace* engineTrace = find<EngineTrace>(L"engine", "EngineTraceClient004");
-    EntityList* entityList = find<EntityList>(L"client_panorama", "VClientEntityList003");;
-    GameEventManager* gameEventManager = find<GameEventManager>(L"engine", "GAMEEVENTSMANAGER002");
-    GameMovement* gameMovement = find<GameMovement>(L"client_panorama", "GameMovement001");
-    GameUI* gameUI = find<GameUI>(L"client_panorama", "GameUI011");
-    InputSystem* inputSystem = find<InputSystem>(L"inputsystem", "InputSystemVersion001");
-    Localize* localize = find<Localize>(L"localize", "Localize_001");
-    MaterialSystem* materialSystem = find<MaterialSystem>(L"materialsystem", "VMaterialSystem080");
-    ModelInfo* modelInfo = find<ModelInfo>(L"engine", "VModelInfoClient004");
-    ModelRender* modelRender = find<ModelRender>(L"engine", "VEngineModel016");
-    Panel* panel = find<Panel>(L"vgui2", "VGUI_Panel009");
-    PhysicsSurfaceProps* physicsSurfaceProps = find<PhysicsSurfaceProps>(L"vphysics", "VPhysicsSurfaceProps001");
-    Prediction* prediction = find<Prediction>(L"client_panorama", "VClientPrediction001");
-    RenderView* renderView = find<RenderView>(L"engine", "VEngineRenderView014");
-    ResourceAccessControl* resourceAccessControl = find<ResourceAccessControl>(L"datacache", "VResourceAccessControl001");
-    Surface* surface = find<Surface>(L"vguimatsurface", "VGUI_Surface031");
-    Sound* sound = find<Sound>(L"engine", "IEngineSoundClient003");
-    SoundEmitter* soundEmitter = find<SoundEmitter>(L"soundemittersystem", "VSoundEmitter003");
-    StudioRender* studioRender = find<StudioRender>(L"studiorender", "VStudioRender026");
-private:
-    template <typename T>
-    static auto find(const wchar_t* module, const char* name) noexcept
-    {
-        if (HMODULE moduleHandle = GetModuleHandleW(module))
-            if (const auto createInterface = reinterpret_cast<std::add_pointer_t<T* (const char* name, int* returnCode)>>(GetProcAddress(moduleHandle, "CreateInterface")))
-                if (T* foundInterface = createInterface(name, nullptr))
-                    return foundInterface;
+#define GAME_INTERFACE(type, name, moduleName, version) \
+type* name = reinterpret_cast<type*>(find(moduleName, version));
 
-        MessageBoxA(nullptr, (std::ostringstream{ } << "Failed to find " << name << " interface!").str().c_str(), "Osiris", MB_OK | MB_ICONERROR);
+    GAME_INTERFACE(BaseFileSystem, baseFileSystem, FILESYSTEM_DLL, "VBaseFileSystem011")
+    GAME_INTERFACE(Client, client, CLIENT_DLL, "VClient018")
+    GAME_INTERFACE(Cvar, cvar, VSTDLIB_DLL, "VEngineCvar007")
+    GAME_INTERFACE(Engine, engine, ENGINE_DLL, "VEngineClient014")
+    GAME_INTERFACE(EngineTrace, engineTrace, ENGINE_DLL, "EngineTraceClient004")
+    GAME_INTERFACE(EntityList, entityList, CLIENT_DLL, "VClientEntityList003")
+    GAME_INTERFACE(GameEventManager, gameEventManager, ENGINE_DLL, "GAMEEVENTSMANAGER002")
+    GAME_INTERFACE(GameMovement, gameMovement, CLIENT_DLL, "GameMovement001")
+    GAME_INTERFACE(GameUI, gameUI, CLIENT_DLL, "GameUI011")
+    GAME_INTERFACE(InputSystem, inputSystem, INPUTSYSTEM_DLL, "InputSystemVersion001")
+    GAME_INTERFACE(Localize, localize, LOCALIZE_DLL, "Localize_001")
+    GAME_INTERFACE(MaterialSystem, materialSystem, MATERIALSYSTEM_DLL, "VMaterialSystem080")
+    GAME_INTERFACE(ModelInfo, modelInfo, ENGINE_DLL, "VModelInfoClient004")
+    GAME_INTERFACE(ModelRender, modelRender, ENGINE_DLL, "VEngineModel016")
+    GAME_INTERFACE(NetworkStringTableContainer, networkStringTableContainer, ENGINE_DLL, "VEngineClientStringTable001")
+    GAME_INTERFACE(Panel, panel, VGUI2_DLL, "VGUI_Panel009")
+    GAME_INTERFACE(PanoramaUIEngine, panoramaUIEngine, PANORAMA_DLL, "PanoramaUIEngine001")
+    GAME_INTERFACE(PhysicsSurfaceProps, physicsSurfaceProps, VPHYSICS_DLL, "VPhysicsSurfaceProps001")
+    GAME_INTERFACE(Prediction, prediction, CLIENT_DLL, "VClientPrediction001")
+    GAME_INTERFACE(RenderView, renderView, ENGINE_DLL, "VEngineRenderView014")
+    GAME_INTERFACE(Surface, surface, VGUIMATSURFACE_DLL, "VGUI_Surface031")
+    GAME_INTERFACE(Sound, sound, ENGINE_DLL, "IEngineSoundClient003")
+    GAME_INTERFACE(SoundEmitter, soundEmitter, SOUNDEMITTERSYSTEM_DLL, "VSoundEmitter003")
+    GAME_INTERFACE(StudioRender, studioRender, STUDIORENDER_DLL, "VStudioRender026")
+
+#undef GAME_INTERFACE
+private:
+    static void* find(const char* moduleName, const char* name) noexcept
+    {
+        if (const auto createInterface = reinterpret_cast<std::add_pointer_t<void* __CDECL(const char* name, int* returnCode)>>(
+#ifdef _WIN32
+            GetProcAddress(GetModuleHandleA(moduleName), "CreateInterface")
+#else
+            dlsym(dlopen(moduleName, RTLD_NOLOAD | RTLD_LAZY), "CreateInterface")
+#endif
+            )) {
+            if (void* foundInterface = createInterface(name, nullptr))
+                return foundInterface;
+        }
+
+#ifdef _WIN32
+        MessageBoxA(nullptr, ("Failed to find " + std::string{ name } + " interface!").c_str(), "Osiris", MB_OK | MB_ICONERROR);
+#endif
         std::exit(EXIT_FAILURE);
     }
 };
 
-extern const Interfaces interfaces;
+inline std::unique_ptr<const Interfaces> interfaces;

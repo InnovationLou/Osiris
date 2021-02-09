@@ -1,9 +1,9 @@
 #pragma once
 
-#include "../SDK/UserCmd.h"
+struct UserCmd;
 
 namespace Triggerbot
 {
     void run(UserCmd*) noexcept;
+    void updateInput() noexcept;
 }
-

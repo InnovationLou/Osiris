@@ -1,15 +1,20 @@
 #pragma once
 
 #include <cstddef>
-#include "Utils.h"
+
 #include "Vector.h"
+#include "VirtualMethod.h"
 
 struct Ray {
     Ray(const Vector& src, const Vector& dest) : start(src), delta(dest - src) { isSwept = delta.x || delta.y || delta.z; }
     Vector start{ };
     float pad{ };
     Vector delta{ };
+#ifdef _WIN32
     std::byte pad2[40]{ };
+#elif __linux__
+    std::byte pad2[44]{ };
+#endif
     bool isRay{ true };
     bool isSwept{ };
 };
@@ -90,15 +95,31 @@ struct Trace {
     int hitbox;
 };
 
+// #define TRACE_STATS // - enable to see how many rays are cast per frame
+
+#ifdef TRACE_STATS
+#include "../Memory.h"
+#include "GlobalVars.h"
+#endif
+
 class EngineTrace {
 public:
-    constexpr auto getPointContents(const Vector& absPosition, int contentsMask) noexcept
-    {
-        return callVirtualMethod<int, const Vector&, int, Entity*>(this, 0, absPosition, contentsMask, nullptr);
-    }
+    VIRTUAL_METHOD(int, getPointContents, 0, (const Vector& absPosition, int contentsMask), (this, std::cref(absPosition), contentsMask, nullptr))
+    VIRTUAL_METHOD(void, _traceRay, 5, (const Ray& ray, unsigned int mask, const TraceFilter& filter, Trace& trace), (this, std::cref(ray), mask, std::cref(filter), std::ref(trace)))
 
-    constexpr void traceRay(const Ray& ray, unsigned int mask, const TraceFilter& filter, Trace& trace) noexcept
+    void traceRay(const Ray& ray, unsigned int mask, const TraceFilter& filter, Trace& trace) noexcept
     {
-        callVirtualMethod<void, const Ray&, unsigned int, const TraceFilter& , Trace&>(this, 5, ray, mask, filter, trace);
+#ifdef TRACE_STATS
+        static int tracesThisFrame, lastFrame;
+
+        if (lastFrame != memory->globalVars->framecount) {
+            memory->debugMsg("traces: frame - %d | count - %d\n", lastFrame, tracesThisFrame);
+            tracesThisFrame = 0;
+            lastFrame = memory->globalVars->framecount;
+        }
+
+        ++tracesThisFrame;
+#endif
+        _traceRay(ray, mask, filter, trace);
     }
 };
